@@ -1,5 +1,5 @@
 # Code Atlas - Python Dependencies
-# Generated automatically - do not edit manually
+# Core dependencies for code analysis and tree-sitter parsing
 
 tree-sitter>=0.20.1
 tree-sitter-python>=0.20.1
