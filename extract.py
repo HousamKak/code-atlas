@@ -1,16 +1,11 @@
 #!/usr/bin/env python3
 """
-Code Map Data Extractor
+Code Map Data Extractor - Fixed Tree-sitter Compatibility
 
 A comprehensive tool for parsing codebases and extracting hierarchical metrics
 for visualization as interactive code maps.
 
-This improved version includes:
-- Enhanced type safety with comprehensive type hints
-- Robust error handling with specific exception types
-- Proper Tree-sitter language setup with fallback mechanisms
-- Runtime dependency validation
-- Improved logging and debugging capabilities
+This version includes fixes for Tree-sitter API compatibility with newer versions.
 
 Dependencies:
     tree-sitter>=0.20.1
@@ -261,9 +256,9 @@ class TreeSitterSetup:
         """Set up a single Tree-sitter language with multiple fallback attempts."""
         # Attempt different approaches to load the language
         load_attempts = [
+            lambda: self._load_from_installed_package(lang_name),
             lambda: self._load_from_system_library(lang_name),
             lambda: self._load_from_build_directory(lang_name),
-            lambda: self._load_from_installed_package(lang_name)
         ]
         
         last_error = None
@@ -284,25 +279,88 @@ class TreeSitterSetup:
         
         raise LanguageSetupError(f"All loading attempts failed for {lang_name}: {last_error}")
 
+    def _load_from_installed_package(self, lang_name: str) -> Optional[Language]:
+        """Attempt to load language from installed Python package (preferred method)."""
+        try:
+            # Map language names to package names
+            package_map = {
+                'python': 'tree_sitter_python',
+                'javascript': 'tree_sitter_javascript', 
+                'typescript': 'tree_sitter_typescript',
+                'java': 'tree_sitter_java',
+                'go': 'tree_sitter_go',
+                'rust': 'tree_sitter_rust',
+                'cpp': 'tree_sitter_cpp',
+                'c': 'tree_sitter_c',
+                'c_sharp': 'tree_sitter_c_sharp',
+                'kotlin': 'tree_sitter_kotlin'
+            }
+            
+            package_name = package_map.get(lang_name)
+            if not package_name:
+                return None
+                
+            # Try to import the language package
+            try:
+                package = __import__(package_name)
+                # Get the language function - this varies by package
+                if hasattr(package, 'language'):
+                    language_func = package.language
+                elif hasattr(package, f'{lang_name}_language'):
+                    language_func = getattr(package, f'{lang_name}_language')
+                else:
+                    # Look for any function that returns a Language
+                    for attr_name in dir(package):
+                        attr = getattr(package, attr_name)
+                        if callable(attr) and not attr_name.startswith('_'):
+                            try:
+                                result = attr()
+                                if isinstance(result, Language):
+                                    language_func = attr
+                                    break
+                            except:
+                                continue
+                    else:
+                        return None
+                
+                return language_func()
+                
+            except ImportError:
+                return None
+                
+        except Exception as e:
+            logging.debug(f"Failed to load {lang_name} from package: {e}")
+            return None
+
     def _load_from_system_library(self, lang_name: str) -> Optional[Language]:
-        """Attempt to load language from system library."""
-        lib_name = f"tree-sitter-{lang_name.replace('_', '-')}"
-        return Language(lib_name, lang_name)
+        """Attempt to load language from system library (legacy method)."""
+        try:
+            lib_name = f"tree-sitter-{lang_name.replace('_', '-')}"
+            # Try the newer API first (single argument)
+            return Language(lib_name)
+        except TypeError:
+            try:
+                # Fall back to older API (two arguments)
+                return Language(lib_name, lang_name)
+            except Exception:
+                return None
+        except Exception:
+            return None
 
     def _load_from_build_directory(self, lang_name: str) -> Optional[Language]:
         """Attempt to load language from build directory."""
-        build_path = Path("build") / f"{lang_name}.so"
-        if build_path.exists():
-            return Language(str(build_path), lang_name)
-        return None
-
-    def _load_from_installed_package(self, lang_name: str) -> Optional[Language]:
-        """Attempt to load language from installed Python package."""
         try:
-            import tree_sitter_languages
-            return tree_sitter_languages.get_language(lang_name)
-        except ImportError:
-            return None
+            build_path = Path("build") / f"{lang_name}.so"
+            if build_path.exists():
+                # Try newer API first
+                try:
+                    return Language(str(build_path))
+                except TypeError:
+                    # Fall back to older API
+                    return Language(str(build_path), lang_name)
+        except Exception:
+            pass
+        return None
 
     def get_parser(self, file_extension: str) -> Optional[Parser]:
         """Get parser for given file extension with validation."""
