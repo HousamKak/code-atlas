@@ -186,7 +186,12 @@ class DependencyManager:
         
         # Add optional but recommended packages
         requirements_content += "\n# Optional packages for enhanced functionality\n"
-        requirements_content += "tree-sitter-languages>=1.5.0  # Pre-built language binaries\n"
+        # The tree-sitter-languages package is not universally available on all
+        # platforms and Python versions. It contains pre-built language
+        # libraries, but the standard tree-sitter packages above already cover
+        # the required grammars. Keep this dependency commented out to avoid
+        # installation failures on systems where no compatible wheel exists.
+        # requirements_content += "tree-sitter-languages>=1.5.0  # Pre-built language binaries\n"
         requirements_content += "colorama>=0.4.4  # Enhanced Windows color support\n"
         
         with open(requirements_path, 'w', encoding='utf-8') as f:

@@ -15,5 +15,4 @@ gitpython>=3.1.0
 radon>=5.1.0
 
 # Optional packages for enhanced functionality
-tree-sitter-languages>=1.5.0  # Pre-built language binaries
 colorama>=0.4.4  # Enhanced Windows color support
