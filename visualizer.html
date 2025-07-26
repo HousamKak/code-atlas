@@ -223,7 +223,7 @@
         <div class="controls">
             <div class="file-input-container">
                 <input type="file" id="fileInput" accept=".json" class="file-input">
-                <button id="loadBtn" class="load-btn" onclick="loadData()">Load Code Map</button>
+                <button id="loadBtn" class="load-btn" onclick="loadData()" disabled>Load Code Map</button>
             </div>
             
             <div id="metricsPanel" class="metrics-panel" style="display: none;">
@@ -301,189 +301,99 @@
                 };
             }
 
-            showError(message) {
-                const errorDiv = document.getElementById('errorMessage');
-                errorDiv.textContent = message;
-                errorDiv.style.display = 'block';
-                console.error('Code Atlas Error:', message);
-            }
-
-            hideError() {
-                document.getElementById('errorMessage').style.display = 'none';
-            }
-
-            showLoading() {
-                document.getElementById('loading').style.display = 'block';
-                document.getElementById('emptyState').style.display = 'none';
-                document.getElementById('treemapContainer').style.display = 'none';
-            }
-
-            hideLoading() {
-                document.getElementById('loading').style.display = 'none';
-            }
-
             loadFile(file) {
                 if (!file) {
                     this.showError('No file selected');
                     return;
                 }
 
-                if (!file.name.endsWith('.json')) {
-                    this.showError('Please select a JSON file');
-                    return;
-                }
-
-                this.showLoading();
+                this.showLoading(true);
                 this.hideError();
 
                 const reader = new FileReader();
                 reader.onload = (e) => {
                     try {
-                        const jsonData = JSON.parse(e.target.result);
-                        this.processData(jsonData);
+                        const data = JSON.parse(e.target.result);
+                        this.processData(data);
+                        this.showLoading(false);
                     } catch (error) {
-                        this.hideLoading();
                         this.showError(`Failed to parse JSON: ${error.message}`);
+                        this.showLoading(false);
                     }
                 };
-
                 reader.onerror = () => {
-                    this.hideLoading();
                     this.showError('Failed to read file');
+                    this.showLoading(false);
                 };
-
                 reader.readAsText(file);
             }
 
-            processData(jsonData) {
-                try {
-                    // Validate data structure
-                    if (!jsonData || typeof jsonData !== 'object') {
-                        throw new Error('Invalid data format: expected JSON object');
-                    }
-
-                    // Handle both root-level data and nested children
-                    if (jsonData.children && Array.isArray(jsonData.children)) {
-                        this.data = jsonData;
-                    } else if (Array.isArray(jsonData)) {
-                        // Handle array of modules
-                        this.data = {
-                            name: 'Project',
-                            type: 'root',
-                            children: jsonData,
-                            loc: 0,
-                            complexity: 0,
-                            churn: 0
-                        };
-                    } else {
-                        throw new Error('Invalid data format: expected children array or module array');
-                    }
-
-                    // Calculate totals if not present
-                    this.calculateTotals(this.data);
-
-                    this.hideLoading();
-                    this.updateMetrics();
-                    this.renderTreemap();
-
-                } catch (error) {
-                    this.hideLoading();
-                    this.showError(`Failed to process data: ${error.message}`);
-                }
+            processData(data) {
+                this.data = data;
+                this.updateMetrics(data);
+                this.renderTreemap();
+                
+                // Hide empty state and show visualization
+                document.getElementById('emptyState').style.display = 'none';
+                this.container.style.display = 'block';
+                document.getElementById('metricsPanel').style.display = 'grid';
             }
 
-            calculateTotals(node) {
-                if (!node.children || !Array.isArray(node.children)) {
-                    return;
-                }
-
-                let totalLoc = 0;
-                let totalComplexity = 0;
-                let totalChurn = 0;
-
-                for (const child of node.children) {
-                    this.calculateTotals(child);
-                    totalLoc += child.loc || 0;
-                    totalComplexity += child.complexity || 0;
-                    totalChurn += child.churn || 0;
-                }
-
-                if (node.type === 'root' || node.type === 'module') {
-                    node.loc = node.loc || totalLoc;
-                    node.complexity = node.complexity || totalComplexity;
-                    node.churn = node.churn || totalChurn;
-                }
-            }
-
-            updateMetrics() {
-                const moduleCount = this.data.children ? this.data.children.length : 0;
-                const totalLoc = this.data.loc || 0;
-                const totalComplexity = this.data.complexity || 0;
-                const totalChurn = this.data.churn || 0;
+            updateMetrics(data) {
+                const moduleCount = data.children ? data.children.length : 0;
+                const totalLoc = data.loc || 0;
+                const totalComplexity = data.complexity || 0;
+                const totalChurn = data.churn || 0;
 
                 document.getElementById('totalModules').textContent = moduleCount.toLocaleString();
                 document.getElementById('totalLoc').textContent = totalLoc.toLocaleString();
                 document.getElementById('totalComplexity').textContent = totalComplexity.toLocaleString();
                 document.getElementById('totalChurn').textContent = totalChurn.toLocaleString();
-
-                document.getElementById('metricsPanel').style.display = 'grid';
             }
 
             renderTreemap() {
-                if (!this.data || !this.data.children || this.data.children.length === 0) {
-                    document.getElementById('emptyState').style.display = 'block';
-                    document.getElementById('treemapContainer').style.display = 'none';
+                if (!this.data || !this.data.children) {
+                    this.showError('No data to visualize');
                     return;
                 }
 
-                document.getElementById('emptyState').style.display = 'none';
-                document.getElementById('treemapContainer').style.display = 'block';
-
-                // Clear existing content
+                // Clear previous visualization
                 this.container.innerHTML = '';
 
-                // Get container dimensions
                 const containerRect = this.container.getBoundingClientRect();
                 const width = containerRect.width;
                 const height = containerRect.height;
 
-                if (width <= 0 || height <= 0) {
-                    console.warn('Container has invalid dimensions, retrying...');
-                    setTimeout(() => this.renderTreemap(), 100);
-                    return;
-                }
-
-                // Create treemap layout
-                const layout = this.squarify(this.data.children, 0, 0, width, height);
+                // Calculate treemap layout
+                const treemapData = this.calculateTreemap(this.data.children, width, height);
 
                 // Render nodes
-                layout.forEach((item, index) => {
+                treemapData.forEach((item, index) => {
                     this.createNode(item, index);
                 });
             }
 
-            squarify(data, x, y, width, height) {
-                // Simple treemap algorithm implementation
-                const total = data.reduce((sum, item) => sum + Math.max(item.loc || 0, 1), 0);
-                
-                if (total === 0) return [];
+            calculateTreemap(data, width, height) {
+                // Simple squarified treemap algorithm
+                const totalArea = width * height;
+                const totalValue = data.reduce((sum, item) => sum + (item.loc || 1), 0);
+
+                // Sort by size descending
+                const sortedData = [...data].sort((a, b) => (b.loc || 1) - (a.loc || 1));
 
                 const result = [];
-                let currentX = x;
-                let currentY = y;
+                let currentX = 0;
+                let currentY = 0;
                 let remainingWidth = width;
                 let remainingHeight = height;
 
-                // Sort by size descending
-                const sortedData = [...data].sort((a, b) => (b.loc || 0) - (a.loc || 0));
-
                 for (let i = 0; i < sortedData.length; i++) {
                     const item = sortedData[i];
-                    const size = Math.max(item.loc || 0, 1);
-                    const ratio = size / total;
-
+                    const value = item.loc || 1;
+                    const ratio = value / totalValue;
+                    
                     let nodeWidth, nodeHeight;
-
+                    
                     if (remainingWidth > remainingHeight) {
                         // Split horizontally
                         nodeWidth = remainingWidth * ratio;
@@ -597,6 +507,20 @@
             hideTooltip() {
                 this.tooltip.style.display = 'none';
             }
+
+            showLoading(show) {
+                document.getElementById('loading').style.display = show ? 'block' : 'none';
+            }
+
+            showError(message) {
+                const errorElement = document.getElementById('errorMessage');
+                errorElement.textContent = message;
+                errorElement.style.display = 'block';
+            }
+
+            hideError() {
+                document.getElementById('errorMessage').style.display = 'none';
+            }
         }
 
         // Global instance
@@ -654,6 +578,7 @@
                 if (files.length > 0 && visualizer) {
                     const file = files[0];
                     document.getElementById('fileInput').files = files;
+                    document.getElementById('loadBtn').disabled = false;
                     visualizer.loadFile(file);
                 }
             });
